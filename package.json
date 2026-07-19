@@ -1,0 +1,24 @@
+{
+  "name": "@files-workbench/core",
+  "version": "0.1.0",
+  "description": "The Files Workbench data layer — the Go HTTP backend (data + control servers: filesystem ops, media/thumbnails, archives, icons, preferences, plugin hosting) and the JS client library that talks to it.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "server"
+  ],
+  "scripts": {
+    "dev": "cd server && go run .",
+    "build": "cd server && go build ./..."
+  },
+  "keywords": [
+    "files-workbench",
+    "file-manager",
+    "backend"
+  ],
+  "license": "MIT"
+}

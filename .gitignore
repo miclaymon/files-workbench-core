@@ -1,0 +1,5 @@
+node_modules/
+server/dist/
+server/logs/
+*.log
+server/files-workbench
