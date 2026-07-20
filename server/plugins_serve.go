@@ -30,14 +30,19 @@ type servedArtifact struct {
 }
 
 type servedPlugin struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Version     string          `json:"version"`
-	Icon        string          `json:"icon,omitempty"`
-	Permissions []string        `json:"permissions"`
-	Client      *servedArtifact `json:"client,omitempty"`
-	FirstParty  bool            `json:"firstParty"`
-	Enabled     bool            `json:"enabled"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Icon    string `json:"icon,omitempty"`
+	// Engines and Dependencies are contract declarations the CLIENT enforces before
+	// loading a plugin (SDK compatibility, dependency version ranges) — pass them
+	// through untouched; dropping them silently disables those checks.
+	Engines      map[string]string `json:"engines,omitempty"`
+	Dependencies map[string]string `json:"dependencies,omitempty"`
+	Permissions  []string          `json:"permissions"`
+	Client       *servedArtifact   `json:"client,omitempty"`
+	FirstParty   bool              `json:"firstParty"`
+	Enabled      bool              `json:"enabled"`
 }
 
 // allowedArtifacts is the whitelist of files the artifact endpoint will serve — no
@@ -71,12 +76,14 @@ func scanServedPlugins(dir string, firstParty bool) []servedPlugin {
 			continue
 		}
 		var m struct {
-			ID          string   `json:"id"`
-			Name        string   `json:"name"`
-			Version     string   `json:"version"`
-			Icon        string   `json:"icon"`
-			Permissions []string `json:"permissions"`
-			Client      *struct {
+			ID           string            `json:"id"`
+			Name         string            `json:"name"`
+			Version      string            `json:"version"`
+			Icon         string            `json:"icon"`
+			Engines      map[string]string `json:"engines"`
+			Dependencies map[string]string `json:"dependencies"`
+			Permissions  []string          `json:"permissions"`
+			Client       *struct {
 				Entry string `json:"entry"`
 				Hash  string `json:"hash"`
 			} `json:"client"`
@@ -96,6 +103,7 @@ func scanServedPlugins(dir string, firstParty bool) []servedPlugin {
 		}
 		out = append(out, servedPlugin{
 			ID: id, Name: m.Name, Version: m.Version, Icon: m.Icon, Permissions: m.Permissions,
+			Engines: m.Engines, Dependencies: m.Dependencies,
 			FirstParty: firstParty, Enabled: true,
 			Client:     &servedArtifact{URL: apiPrefix + "/plugins/" + id + "/" + m.Client.Entry, Hash: m.Client.Hash},
 		})

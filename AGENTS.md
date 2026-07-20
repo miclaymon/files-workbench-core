@@ -79,7 +79,10 @@ reads/writes must go through one of these roots — never assume a repo layout.
   they change (`invalidateDirSize`, cache eviction).
 - **The service worker script lives in the app** (`client/public/sw.js`, root
   scope requirement). Its `ENDPOINTS` map mirrors the one in `src/sw-queue.js`
-  — **adding a write endpoint means updating both**.
+  — **adding a write endpoint means updating both**. The app enforces this with
+  `client/scripts/check-sw-endpoints.js` (hard-fails its packaging build), so a
+  change here that isn't mirrored there will break the app's build, not silently
+  drift.
 - `customization.go` reads bypass the blacklist intentionally (internal
   enrichment, not listing exposure).
 
