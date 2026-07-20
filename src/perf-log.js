@@ -1,4 +1,4 @@
-import { API_BASE, API_V } from './api-config.js'
+import { CONTROL_BASE, API_V } from './api-config.js'
 
 let _label = ''
 let _t0 = 0
@@ -21,7 +21,8 @@ export async function perfFlush() {
   _t0 = 0
   _marks = []
   try {
-    await fetch(`${API_BASE}/_api/${API_V}/perf`, {
+    // POST /perf is a control-server route (mutating endpoints live on the control mux).
+    await fetch(`${CONTROL_BASE}/_api/${API_V}/perf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
