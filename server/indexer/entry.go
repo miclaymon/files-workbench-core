@@ -82,6 +82,8 @@ type Status struct {
 	FileCount      int64        `json:"fileCount"`
 	ContentIndexed int64        `json:"contentIndexed"` // files with full-text indexed (Phase 2)
 	ContentPending int64        `json:"contentPending"` // files awaiting a content pass
+	ContentBytes   int64        `json:"contentBytes"`   // bytes of indexed text
+	ContentBudget  int64        `json:"contentBudget"`  // size budget for indexed text (0 = unlimited)
 	DBSizeByte     int64        `json:"dbSizeBytes"`
 	Volumes        []VolumeInfo `json:"volumes"`
 }

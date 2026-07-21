@@ -78,6 +78,8 @@ Search-index vars (consumed by `indexer_proxy.go` + the `fw-indexer` child):
 | `FW_INDEX_BIN` | override for the `fw-indexer` binary path (else: next to the server binary, then `<pkg>/server/fw-indexer`). |
 | `FW_INDEX_ADDR` | where the indexer listens (default `127.0.0.1:8010`); core proxies to it. |
 | `FW_DATA_DIR` | also holds the index DB (`<dataDir>/index/index.db`). |
+| `FW_INDEX_CONTENT` | `0` disables full-text content indexing (name-only index). |
+| `FW_INDEX_CONTENT_BUDGET` | bytes of indexed text before the scanner stops indexing new files (default 512 MiB; `0` = unlimited). |
 
 **A host app always sets these.** Files Workbench points them at its own tree in
 `dev:server` (repo root `config/` + `.fw/plugins`) and from Electron's main

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -48,6 +49,12 @@ func main() {
 	// name-only index (lighter — no background file reads).
 	if os.Getenv("FW_INDEX_CONTENT") == "0" {
 		svc.SetContentIndexing(false)
+	}
+	// FW_INDEX_CONTENT_BUDGET caps the bytes of indexed text (0 = unlimited).
+	if b := os.Getenv("FW_INDEX_CONTENT_BUDGET"); b != "" {
+		if n, err := strconv.ParseInt(b, 10, 64); err == nil {
+			svc.SetContentBudget(n)
+		}
 	}
 
 	// Index + watch the configured roots in the background so the query API is up

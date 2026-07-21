@@ -293,10 +293,15 @@ Concrete levers so the service stays invisible:
   follow-up.*
 - **Phase 2 — content + metadata.** *Content full-text is DONE* (contentless FTS5
   `content_fts` + `content_meta`; a low-priority background scanner that sniffs
-  text-vs-binary and indexes text under a size cap, incrementally + on change; content
-  search in the query with AND-of-tokens + BM25; a Name/Contents toggle in the Search
-  panel). Remaining Phase 2: richer per-type extractors (PDF/docx — today only UTF-8
-  text/code), a JSON metadata column (EXIF/ID3), and a size budget + eviction.
+  text-vs-binary and indexes text under a per-file size cap, incrementally + on change;
+  content search in the query with AND-of-tokens + BM25; a Name/Contents toggle in the
+  Search panel). *The total size budget is DONE too* — `content_meta.body_bytes` tracks
+  indexed-text bytes; once `FW_INDEX_CONTENT_BUDGET` (default 512 MiB) is reached the
+  scanner stops indexing NEW files (a changed already-indexed file still re-indexes),
+  bounding the content index's footprint; `/status` reports `contentBytes`/`contentBudget`.
+  Remaining Phase 2: richer per-type extractors (PDF/docx — today only UTF-8 text/code),
+  a JSON metadata column (EXIF/ID3), and LRU eviction (today it's stop-when-full, no
+  eviction — freed budget doesn't backfill skipped files until they change).
 - **Phase 3 — native accelerators.** Windows USN/MFT and macOS Spotlight/FSEvents
   behind the existing `Source` interface. Faster first-index and cross-restart
   catch-up; no API change.

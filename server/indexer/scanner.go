@@ -20,7 +20,10 @@ type scannerOptions struct {
 	betweenBatch time.Duration // pause between batches (idle-priority throttle)
 	idlePoll     time.Duration // wait when there's nothing to do
 	maxBytes     int64         // per-file content cap
+	budget       int64         // total indexed-text budget (0 = unlimited)
 }
+
+const defaultContentBudget = 512 << 20 // 512 MiB of indexed text
 
 func defaultScannerOptions() scannerOptions {
 	return scannerOptions{
@@ -28,6 +31,7 @@ func defaultScannerOptions() scannerOptions {
 		betweenBatch: 40 * time.Millisecond,
 		idlePoll:     2 * time.Second,
 		maxBytes:     defaultMaxContentBytes,
+		budget:       defaultContentBudget,
 	}
 }
 
@@ -51,11 +55,14 @@ func (s *Service) runContentScanner(ctx context.Context, opt scannerOptions) {
 			}
 			continue
 		}
+		// Track the running indexed-text total across the batch (fetched once, then
+		// adjusted as we index) so the budget check doesn't re-SUM per file.
+		total := s.store.contentBytes()
 		for _, c := range batch {
 			if ctx.Err() != nil {
 				return
 			}
-			s.indexOneContent(c, opt.maxBytes)
+			total += s.indexOneContent(c, opt.maxBytes, opt.budget, total)
 		}
 		if !sleep(ctx, opt.betweenBatch) { // throttle between batches
 			return
@@ -63,18 +70,35 @@ func (s *Service) runContentScanner(ctx context.Context, opt scannerOptions) {
 	}
 }
 
-func (s *Service) indexOneContent(c contentCandidate, maxBytes int64) {
+// indexOneContent examines one file and returns the bytes it ADDED to the content
+// index (0 if skipped or a re-index of an already-counted file).
+func (s *Service) indexOneContent(c contentCandidate, maxBytes, budget, currentTotal int64) int64 {
 	text, ok := extractText(c.Path, c.Size, maxBytes)
 	if !ok {
 		// Binary / too big / unreadable — record so we don't re-examine until it changes.
 		if err := s.store.MarkContentSkipped(c.ID, c.MTime, c.Size); err != nil {
 			s.log("content mark-skipped " + c.Path + ": " + err.Error())
 		}
-		return
+		return 0
+	}
+	// Size budget: block indexing a NEW file that would push the content index over
+	// budget (a re-index of an already-indexed file is allowed through — it replaces
+	// existing content and keeps changed files fresh). An over-budget file is marked
+	// examined-but-skipped, so it won't be reconsidered until it changes.
+	if budget > 0 && !c.WasIndexed && currentTotal+int64(len(text)) > budget {
+		if err := s.store.MarkContentSkipped(c.ID, c.MTime, c.Size); err != nil {
+			s.log("content over-budget skip " + c.Path + ": " + err.Error())
+		}
+		return 0
 	}
 	if err := s.store.IndexContent(c.ID, text, c.MTime, c.Size); err != nil {
 		s.log("content index " + c.Path + ": " + err.Error())
+		return 0
 	}
+	if c.WasIndexed {
+		return 0 // replaced existing content — net change is ~0 for the running estimate
+	}
+	return int64(len(text))
 }
 
 // sleep waits d or returns false if ctx is cancelled first.

@@ -15,10 +15,11 @@ import (
 // (the SSE feed live search results ride). It is Source-agnostic — the same code
 // drives the portable backend today and the native ones later.
 type Service struct {
-	store   *Store
-	src     Source
-	log     func(string)
-	content bool // run the background content scanner (Phase 2 full-text)
+	store         *Store
+	src           Source
+	log           func(string)
+	content       bool  // run the background content scanner (Phase 2 full-text)
+	contentBudget int64 // size budget for indexed text (0 = unlimited)
 
 	mu    sync.Mutex
 	roots map[string]*VolumeInfo // volumeID → coverage
@@ -29,17 +30,22 @@ type Service struct {
 
 func NewService(store *Store, src Source) *Service {
 	return &Service{
-		store:   store,
-		src:     src,
-		log:     func(string) {},
-		content: true, // on by default; host can disable for a name-only index
-		roots:   map[string]*VolumeInfo{},
-		subs:    map[chan Change]struct{}{},
+		store:         store,
+		src:           src,
+		log:           func(string) {},
+		content:       true, // on by default; host can disable for a name-only index
+		contentBudget: defaultContentBudget,
+		roots:         map[string]*VolumeInfo{},
+		subs:          map[chan Change]struct{}{},
 	}
 }
 
 // SetContentIndexing toggles the background full-text content scanner.
 func (s *Service) SetContentIndexing(on bool) { s.content = on }
+
+// SetContentBudget caps the total bytes of indexed text (0 = unlimited). Once
+// reached, new files stop being content-indexed (changed files still re-index).
+func (s *Service) SetContentBudget(bytes int64) { s.contentBudget = bytes }
 
 // SetLogger installs a log sink for background (non-request) diagnostics.
 func (s *Service) SetLogger(log func(string)) {
@@ -67,7 +73,9 @@ func (s *Service) Start(ctx context.Context, roots []string) error {
 	// the store's content_meta bookkeeping — files the name index/watcher touch
 	// reappear as needing content and get picked up here.
 	if s.content {
-		go s.runContentScanner(ctx, defaultScannerOptions())
+		opt := defaultScannerOptions()
+		opt.budget = s.contentBudget
+		go s.runContentScanner(ctx, opt)
 	}
 	return nil
 }
@@ -193,6 +201,7 @@ func (s *Service) Status() (Status, error) {
 	return Status{
 		State: overall, FileCount: count,
 		ContentIndexed: indexed, ContentPending: pending,
+		ContentBytes: s.store.contentBytes(), ContentBudget: s.contentBudget,
 		DBSizeByte: s.store.dbSizeBytes(), Volumes: vols,
 	}, nil
 }

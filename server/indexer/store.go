@@ -111,7 +111,8 @@ func (s *Store) migrate() error {
 			file_id    INTEGER PRIMARY KEY,
 			mtime      INTEGER NOT NULL,
 			size       INTEGER NOT NULL,
-			indexed    INTEGER NOT NULL DEFAULT 0,   -- 1 = text was indexed; 0 = examined but skipped (binary/too big)
+			indexed    INTEGER NOT NULL DEFAULT 0,   -- 1 = text was indexed; 0 = examined but skipped (binary/too big/over budget)
+			body_bytes INTEGER NOT NULL DEFAULT 0,   -- bytes of indexed text (0 when not indexed) — drives the size budget
 			indexed_at INTEGER NOT NULL
 		)`,
 		// Cascade content cleanup when a file row is removed (the files_fts triggers
@@ -126,7 +127,35 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w\n%s", err, stmt)
 		}
 	}
+	// Additive column migrations for tables that may predate a field (CREATE ... IF
+	// NOT EXISTS won't add columns to an existing table).
+	if err := s.addColumn("content_meta", "body_bytes", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	return nil
+}
+
+// addColumn adds col to table if it isn't already present (SQLite has no
+// ADD COLUMN IF NOT EXISTS).
+func (s *Store) addColumn(table, col, def string) error {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == col {
+			return nil // already present
+		}
+	}
+	_, err = s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + col + " " + def)
+	return err
 }
 
 const upsertSQL = `
