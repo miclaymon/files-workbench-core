@@ -50,6 +50,7 @@ type Query struct {
 	Text      string    `json:"text"`
 	Scope     string    `json:"scope"`   // restrict to this subtree ("" = all)
 	Match     MatchMode `json:"match"`   // defaults to MatchSubstring
+	Content   bool      `json:"content"` // search file *contents* (full-text) instead of name/path
 	Types     []string  `json:"types"`   // extension filter (lowercased, no dot)
 	MinSize   int64     `json:"minSize"` // 0 = no lower bound
 	MaxSize   int64     `json:"maxSize"` // 0 = no upper bound
@@ -77,10 +78,12 @@ type ResultPage struct {
 
 // Status reports index coverage and footprint for the UI's "indexing…" affordances.
 type Status struct {
-	State      string       `json:"state"` // building | ready | degraded
-	FileCount  int64        `json:"fileCount"`
-	DBSizeByte int64        `json:"dbSizeBytes"`
-	Volumes    []VolumeInfo `json:"volumes"`
+	State          string       `json:"state"` // building | ready | degraded
+	FileCount      int64        `json:"fileCount"`
+	ContentIndexed int64        `json:"contentIndexed"` // files with full-text indexed (Phase 2)
+	ContentPending int64        `json:"contentPending"` // files awaiting a content pass
+	DBSizeByte     int64        `json:"dbSizeBytes"`
+	Volumes        []VolumeInfo `json:"volumes"`
 }
 
 // VolumeInfo is per-root coverage.

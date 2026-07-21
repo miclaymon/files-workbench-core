@@ -15,9 +15,10 @@ import (
 // (the SSE feed live search results ride). It is Source-agnostic — the same code
 // drives the portable backend today and the native ones later.
 type Service struct {
-	store *Store
-	src   Source
-	log   func(string)
+	store   *Store
+	src     Source
+	log     func(string)
+	content bool // run the background content scanner (Phase 2 full-text)
 
 	mu    sync.Mutex
 	roots map[string]*VolumeInfo // volumeID → coverage
@@ -28,13 +29,17 @@ type Service struct {
 
 func NewService(store *Store, src Source) *Service {
 	return &Service{
-		store: store,
-		src:   src,
-		log:   func(string) {},
-		roots: map[string]*VolumeInfo{},
-		subs:  map[chan Change]struct{}{},
+		store:   store,
+		src:     src,
+		log:     func(string) {},
+		content: true, // on by default; host can disable for a name-only index
+		roots:   map[string]*VolumeInfo{},
+		subs:    map[chan Change]struct{}{},
 	}
 }
+
+// SetContentIndexing toggles the background full-text content scanner.
+func (s *Service) SetContentIndexing(on bool) { s.content = on }
 
 // SetLogger installs a log sink for background (non-request) diagnostics.
 func (s *Service) SetLogger(log func(string)) {
@@ -57,6 +62,12 @@ func (s *Service) Start(ctx context.Context, roots []string) error {
 	}
 	for _, root := range roots {
 		go s.indexRoot(ctx, root)
+	}
+	// Background full-text scanner (Phase 2): fills content_fts at idle priority from
+	// the store's content_meta bookkeeping — files the name index/watcher touch
+	// reappear as needing content and get picked up here.
+	if s.content {
+		go s.runContentScanner(ctx, defaultScannerOptions())
 	}
 	return nil
 }
@@ -177,7 +188,13 @@ func (s *Service) Status() (Status, error) {
 		}
 	}
 	s.mu.Unlock()
-	return Status{State: overall, FileCount: count, DBSizeByte: s.store.dbSizeBytes(), Volumes: vols}, nil
+	indexed, _ := s.store.contentStats()
+	pending := s.store.contentPending()
+	return Status{
+		State: overall, FileCount: count,
+		ContentIndexed: indexed, ContentPending: pending,
+		DBSizeByte: s.store.dbSizeBytes(), Volumes: vols,
+	}, nil
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
@@ -256,6 +273,7 @@ func parseQuery(r *http.Request) Query {
 		Text:      v.Get("q"),
 		Scope:     v.Get("scope"),
 		Match:     MatchMode(v.Get("match")),
+		Content:   v.Get("content") == "1" || v.Get("content") == "true",
 		Sort:      SortField(v.Get("sort")),
 		Desc:      v.Get("desc") == "1" || v.Get("desc") == "true",
 		DirsOnly:  v.Get("dirsOnly") == "1",

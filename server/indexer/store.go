@@ -15,7 +15,7 @@ import (
 //
 // The name/path index is `files` + an external-content FTS5 table with the trigram
 // tokenizer (substring matching, kept in sync by triggers). Content full-text
-// (docs/INDEX.md phase 2) will be an additive `content_fts` table, not a rewrite.
+// (Phase 2) is an additive `content_fts` table alongside it — see content_store.go.
 type Store struct {
 	db   *sql.DB
 	path string
@@ -67,7 +67,7 @@ func (s *Store) migrate() error {
 			path      TEXT    NOT NULL UNIQUE,
 			ext       TEXT    NOT NULL DEFAULT '',
 			size      INTEGER NOT NULL DEFAULT 0,
-			mtime     INTEGER NOT NULL DEFAULT 0,    -- unix seconds
+			mtime     INTEGER NOT NULL DEFAULT 0,    -- unix nanoseconds (see unix() — sub-second for change detection)
 			ctime     INTEGER NOT NULL DEFAULT 0,    -- best-effort until a native backend supplies birth time
 			is_dir    INTEGER NOT NULL DEFAULT 0
 		)`,
@@ -96,6 +96,30 @@ func (s *Store) migrate() error {
 			last_scan      INTEGER NOT NULL DEFAULT 0,
 			state          TEXT    NOT NULL DEFAULT 'building'
 		)`,
+		// ── Content full-text (Phase 2) ─────────────────────────────────────────
+		// Contentless FTS5 (content='') stores only the index, not the file text —
+		// smallest on disk. contentless_delete=1 lets us drop/replace a file's row by
+		// rowid (= files.id) without re-supplying the old text. Unicode word tokenizer
+		// for prose/code, diacritic-folded.
+		`CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
+			body, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2'
+		)`,
+		// content_meta records the last content pass per file (whether or not it was
+		// indexable) so the scanner skips unchanged files. mtime/size mirror files at
+		// index time; a later mtime means "re-scan".
+		`CREATE TABLE IF NOT EXISTS content_meta (
+			file_id    INTEGER PRIMARY KEY,
+			mtime      INTEGER NOT NULL,
+			size       INTEGER NOT NULL,
+			indexed    INTEGER NOT NULL DEFAULT 0,   -- 1 = text was indexed; 0 = examined but skipped (binary/too big)
+			indexed_at INTEGER NOT NULL
+		)`,
+		// Cascade content cleanup when a file row is removed (the files_fts triggers
+		// only cover the name index).
+		`CREATE TRIGGER IF NOT EXISTS files_content_ad AFTER DELETE ON files BEGIN
+			DELETE FROM content_fts  WHERE rowid   = old.id;
+			DELETE FROM content_meta WHERE file_id = old.id;
+		END`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -189,11 +213,15 @@ func (b *Batch) flush() error {
 func (b *Batch) Commit() error { return b.flush() }
 
 // unix/boolToInt/normPath/likePrefix are small storage helpers.
+//
+// mtime is stored in unix NANOSECONDS, not seconds: the content scanner detects a
+// modified file by comparing its stored mtime to the current one, and second
+// granularity misses edits made within the same second as the previous index.
 func unix(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
 	}
-	return t.Unix()
+	return t.UnixNano()
 }
 
 func boolToInt(b bool) int {

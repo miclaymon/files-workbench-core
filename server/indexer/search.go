@@ -21,31 +21,42 @@ func (s *Store) Search(q Query) (ResultPage, error) {
 		joins  []string
 		wheres []string
 		args   []any
-		// relevanceOK is set only when a query rides FTS, so bm25() is available to ORDER BY.
-		relevanceOK bool
+		// relevanceExpr is the bm25() expression to rank/score by, set only when the
+		// query rides an FTS table (files_fts for name/path, content_fts for content).
+		relevanceExpr string
 	)
 
 	if q.Text != "" {
-		switch q.Match {
-		case MatchPrefix:
-			wheres = append(wheres, "f.name LIKE ? ESCAPE '\\'")
-			args = append(args, likePrefix(q.Text)+"%")
-		case MatchGlob:
-			wheres = append(wheres, "f.name GLOB ?")
-			args = append(args, q.Text)
-		default: // MatchSubstring
-			if len([]rune(q.Text)) >= 3 {
-				// Trigram FTS needs ≥3 chars. Quote the term as one FTS string so
-				// spaces/punctuation are matched literally, not parsed as operators.
-				joins = append(joins, "JOIN files_fts ON files_fts.rowid = f.id")
-				wheres = append(wheres, "files_fts MATCH ?")
-				args = append(args, ftsQuote(q.Text))
-				relevanceOK = true
-			} else {
-				// Sub-trigram terms can't use the index — fall back to a scan.
-				wheres = append(wheres, "(f.name LIKE ? ESCAPE '\\' OR f.path LIKE ? ESCAPE '\\')")
-				lp := "%" + likePrefix(q.Text) + "%"
-				args = append(args, lp, lp)
+		if q.Content {
+			// Full-text content search (Phase 2): AND of the query's tokens against
+			// each file's indexed text. Tokens are FTS-quoted so user punctuation can't
+			// be parsed as query operators.
+			joins = append(joins, "JOIN content_fts ON content_fts.rowid = f.id")
+			wheres = append(wheres, "content_fts MATCH ?")
+			args = append(args, ftsAndTokens(q.Text))
+			relevanceExpr = "bm25(content_fts)"
+		} else {
+			switch q.Match {
+			case MatchPrefix:
+				wheres = append(wheres, "f.name LIKE ? ESCAPE '\\'")
+				args = append(args, likePrefix(q.Text)+"%")
+			case MatchGlob:
+				wheres = append(wheres, "f.name GLOB ?")
+				args = append(args, q.Text)
+			default: // MatchSubstring
+				if len([]rune(q.Text)) >= 3 {
+					// Trigram FTS needs ≥3 chars. Quote the term as one FTS string so
+					// spaces/punctuation are matched literally, not parsed as operators.
+					joins = append(joins, "JOIN files_fts ON files_fts.rowid = f.id")
+					wheres = append(wheres, "files_fts MATCH ?")
+					args = append(args, ftsQuote(q.Text))
+					relevanceExpr = "bm25(files_fts)"
+				} else {
+					// Sub-trigram terms can't use the index — fall back to a scan.
+					wheres = append(wheres, "(f.name LIKE ? ESCAPE '\\' OR f.path LIKE ? ESCAPE '\\')")
+					lp := "%" + likePrefix(q.Text) + "%"
+					args = append(args, lp, lp)
+				}
 			}
 		}
 	}
@@ -90,10 +101,10 @@ func (s *Store) Search(q Query) (ResultPage, error) {
 		return ResultPage{}, err
 	}
 
-	order := orderClause(q, relevanceOK)
+	order := orderClause(q, relevanceExpr)
 	rowsSQL := fmt.Sprintf(
 		"SELECT f.path, f.name, f.ext, f.size, f.mtime, f.is_dir, f.volume_id %s %s %s %s LIMIT ? OFFSET ?",
-		selectScore(relevanceOK), from, where, order)
+		selectScore(relevanceExpr), from, where, order)
 	rows, err := s.db.Query(rowsSQL, append(append([]any{}, args...), q.Limit, q.Offset)...)
 	if err != nil {
 		return ResultPage{}, err
@@ -111,7 +122,7 @@ func (s *Store) Search(q Query) (ResultPage, error) {
 		if err := rows.Scan(&r.Path, &r.Name, &r.Ext, &r.Size, &mtime, &isDir, &r.VolumeID, &score); err != nil {
 			return ResultPage{}, err
 		}
-		r.Modified = time.Unix(mtime, 0)
+		r.Modified = time.Unix(0, mtime) // stored as unix nanoseconds
 		r.IsDir = isDir == 1
 		if score.Valid {
 			// bm25 is lower-is-better; report a positive "higher is better" score.
@@ -135,25 +146,25 @@ func (s *Store) count(from, where string, args []any) (int, error) {
 	return n, err
 }
 
-// selectScore adds the bm25 relevance column only when a FTS query supplies it;
-// otherwise a NULL keeps the column count stable for Scan.
-func selectScore(relevanceOK bool) string {
-	if relevanceOK {
-		return ", bm25(files_fts)"
+// selectScore adds the bm25 relevance column (from the matched FTS table) only when
+// a FTS query supplies it; otherwise a NULL keeps the column count stable for Scan.
+func selectScore(relevanceExpr string) string {
+	if relevanceExpr != "" {
+		return ", " + relevanceExpr
 	}
 	return ", NULL"
 }
 
-func orderClause(q Query, relevanceOK bool) string {
+func orderClause(q Query, relevanceExpr string) string {
 	dir := "ASC"
 	if q.Desc {
 		dir = "DESC"
 	}
 	switch q.Sort {
 	case SortRelevance:
-		if relevanceOK {
+		if relevanceExpr != "" {
 			// bm25 ascending = most relevant first; Desc flips to least relevant.
-			return "ORDER BY bm25(files_fts) " + dir
+			return "ORDER BY " + relevanceExpr + " " + dir
 		}
 		return "ORDER BY f.name " + dir // no text query → relevance is meaningless
 	case SortSize:
@@ -165,6 +176,18 @@ func orderClause(q Query, relevanceOK bool) string {
 	default:
 		return "ORDER BY f.name " + dir + ", f.path " + dir
 	}
+}
+
+// ftsAndTokens turns a free-text query into an AND of FTS-quoted tokens, so
+// "foo bar" matches files containing both words and any punctuation in the input
+// is treated literally rather than as FTS query syntax. Empty input → match-all
+// guard the caller avoids by only calling this when Text is non-empty.
+func ftsAndTokens(text string) string {
+	fields := strings.Fields(text)
+	for i, f := range fields {
+		fields[i] = ftsQuote(f)
+	}
+	return strings.Join(fields, " ")
 }
 
 func (q Query) withDefaults() Query {

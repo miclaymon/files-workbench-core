@@ -8,10 +8,12 @@ feed**. Core spawns/supervises the child, proxies `/_api/v1/search` +
 `/index/status` + `/index/subscribe`, and degrades to 503 when unavailable; the JS
 client is `src/search-api.js`. The app builds `fw-indexer` (packaging + dev),
 enables it via `FW_INDEX_ROOTS` (explicit-roots policy), and ships a real **Search
-panel** (live results, filters, click-to-reveal). Next: Phase 2 (content full-text),
-Phase 3 (native USN/Spotlight backends), and making roots a preference. Decisions
-marked **[locked]** are settled; **[open]** ones need a call before the phase that
-depends on them.
+panel** (live results, filters, click-to-reveal). **Phase 2 content full-text search
+is done** too — a low-priority background scanner fills a contentless FTS5 content
+index, with content search in the query and a Name/Contents toggle in the panel
+(remaining Phase 2: richer extractors, metadata, size budget). Next: Phase 3 (native
+USN/Spotlight backends) and roots-as-preference. Decisions marked **[locked]** are
+settled; **[open]** ones need a call before the phase that depends on them.
 
 The index is a searchable, incrementally-maintained catalog of the filesystem,
 living in `@files-workbench/core`. Its first consumer is the **Search** activity
@@ -289,9 +291,12 @@ Concrete levers so the service stays invisible:
   makes the data survive restarts. Roots are set via `FW_INDEX_ROOTS` (dev defaults
   to `$HOME`, packaged to the user's home) — promoting this to a preference is a
   follow-up.*
-- **Phase 2 — content + metadata.** `content_fts`, per-type text extractors (reuse
-  the details/preview stack), JSON metadata column, size budget + eviction. This is
-  the "Elasticsearch-like" content search, on FTS5.
+- **Phase 2 — content + metadata.** *Content full-text is DONE* (contentless FTS5
+  `content_fts` + `content_meta`; a low-priority background scanner that sniffs
+  text-vs-binary and indexes text under a size cap, incrementally + on change; content
+  search in the query with AND-of-tokens + BM25; a Name/Contents toggle in the Search
+  panel). Remaining Phase 2: richer per-type extractors (PDF/docx — today only UTF-8
+  text/code), a JSON metadata column (EXIF/ID3), and a size budget + eviction.
 - **Phase 3 — native accelerators.** Windows USN/MFT and macOS Spotlight/FSEvents
   behind the existing `Source` interface. Faster first-index and cross-restart
   catch-up; no API change.

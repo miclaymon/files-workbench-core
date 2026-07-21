@@ -44,6 +44,11 @@ func main() {
 		func(msg string) { log.Printf("[fw-indexer] %s", msg) })
 	svc := indexer.NewService(store, src)
 	svc.SetLogger(func(msg string) { log.Printf("[fw-indexer] %s", msg) })
+	// Full-text content indexing is on by default; FW_INDEX_CONTENT=0 makes it a
+	// name-only index (lighter — no background file reads).
+	if os.Getenv("FW_INDEX_CONTENT") == "0" {
+		svc.SetContentIndexing(false)
+	}
 
 	// Index + watch the configured roots in the background so the query API is up
 	// immediately (results fill in as the walk progresses; live changes apply after).

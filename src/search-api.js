@@ -10,9 +10,10 @@ const SEARCH_BASE = `${API_BASE}/_api/${API_V}`
 
 /**
  * @typedef {object} SearchQuery
- * @property {string} [text]   name/path (content later) match
+ * @property {string} [text]   the query text
  * @property {string} [scope]  restrict to a subtree
- * @property {'substring'|'prefix'|'glob'} [match]
+ * @property {'substring'|'prefix'|'glob'} [match]  name/path match mode (ignored when content=true)
+ * @property {boolean} [content]  search file contents (full-text) instead of name/path
  * @property {string[]} [types]   extension filter (no dot)
  * @property {number} [minSize] @property {number} [maxSize]
  * @property {boolean} [dirsOnly] @property {boolean} [filesOnly]
@@ -27,6 +28,7 @@ function searchParams(q = {}) {
   if (q.text) p.set('q', q.text)
   if (q.scope) p.set('scope', q.scope)
   if (q.match) p.set('match', q.match)
+  if (q.content) p.set('content', '1')
   if (q.sort) p.set('sort', q.sort)
   if (q.desc) p.set('desc', '1')
   if (q.dirsOnly) p.set('dirsOnly', '1')
