@@ -322,8 +322,16 @@ Concrete levers so the service stays invisible:
   selector on their target OS. Today every OS returns the portable backend; the
   windows/darwin selectors document the native plan (USN/MFT via
   `x/sys/windows`+DeviceIoControl; Spotlight/FSEvents via cgo or mdfind).
-  *These backends need their target OS to develop and test* — they can't be
-  runtime-verified from Linux.
+  *Windows USN backend written (⚠️ RUNTIME-UNTESTED — compile-checked only):*
+  `source_windows.go` + `usn_windows.go` tail the NTFS USN change journal for live
+  updates with **cross-restart catch-up** (a per-volume USN cursor persisted to
+  `<FW_DATA_DIR>/index/usn-cursors.json`), resolving paths via
+  `OpenFileById`+`GetFinalPathNameByHandle`; the initial index still uses the portable
+  walk (MFT enumeration is a further optimization). It falls back to the portable
+  backend on any journal setup error (no elevation / non-NTFS), and `FW_INDEX_NATIVE=0`
+  forces portable outright. It cross-compiles for windows amd64+arm64 but has **not
+  been run on Windows** — validate there before trusting it. macOS Spotlight/FSEvents
+  still deferred (its cgo backend can't cross-compile from Linux).
 - **Phase 4 (optional) — OS-level daemon.** Promote the app-child service to a real
   user daemon for cross-session warmth, if the feature earns it.
 

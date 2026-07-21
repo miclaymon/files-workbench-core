@@ -2,6 +2,8 @@
 
 package indexer
 
+import "os"
+
 // SelectSource returns the Windows Source (see docs/INDEX.md, Phase 3).
 //
 // The native accelerator — NTFS **MFT** enumeration for a near-instant initial index
@@ -12,10 +14,17 @@ package indexer
 // FSCTL_READ_USN_JOURNAL / FSCTL_ENUM_USN_DATA). It needs an elevated volume handle,
 // so a small privileged helper may be warranted.
 //
-// Until that lands, Windows uses the portable walk + ReadDirectoryChangesW backend
-// (via fsnotify) — correct, but it re-walks on each start and is bounded by the
-// per-directory watch model. Implement newUSNSource behind this selector.
+// The USN-journal watcher (with cross-restart cursor catch-up) is implemented in
+// source_windows.go / usn_windows.go; the initial index still uses the portable walk
+// (MFT enumeration is a further optimization). ⚠️ That native code is RUNTIME-UNTESTED
+// (written against the Win32 docs, cross-compiled only) and falls back to the portable
+// backend on any journal setup error, so the indexer works regardless.
 func SelectSource(exclude ExcludeFunc, log func(string)) Source {
-	log("windows: portable backend (native USN/MFT accelerator not yet implemented)")
-	return NewPortableSource(exclude, log)
+	// Escape hatch for the runtime-untested native backend: FW_INDEX_NATIVE=0 forces
+	// the portable walk + fsnotify watcher, which is fully verified.
+	if os.Getenv("FW_INDEX_NATIVE") == "0" {
+		log("windows: native USN backend disabled (FW_INDEX_NATIVE=0), using portable")
+		return NewPortableSource(exclude, log)
+	}
+	return newWindowsSource(exclude, log)
 }
