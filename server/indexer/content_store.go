@@ -54,10 +54,11 @@ func (s *Store) contentBytes() int64 {
 	return n
 }
 
-// IndexContent stores a file's extracted text in the content index and marks it
-// examined+indexed. Contentless FTS5 has no in-place update, so replace = delete +
-// insert by rowid (= file id).
-func (s *Store) IndexContent(fileID int64, body string, mtime, size int64) error {
+// IndexContent stores a file's extracted searchable text in the content index and
+// marks it examined+indexed. metaJSON, when non-empty, is the file's structured media
+// metadata, stored on files.meta for display/filtering. Contentless FTS5 has no
+// in-place update, so replace = delete + insert by rowid (= file id).
+func (s *Store) IndexContent(fileID int64, body, metaJSON string, mtime, size int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -68,6 +69,11 @@ func (s *Store) IndexContent(fileID int64, body string, mtime, size int64) error
 	}
 	if _, err := tx.Exec(`INSERT INTO content_fts(rowid, body) VALUES (?, ?)`, fileID, body); err != nil {
 		return err
+	}
+	if metaJSON != "" {
+		if _, err := tx.Exec(`UPDATE files SET meta = ? WHERE id = ?`, metaJSON, fileID); err != nil {
+			return err
+		}
 	}
 	if err := upsertContentMeta(tx, fileID, mtime, size, true, int64(len(body))); err != nil {
 		return err

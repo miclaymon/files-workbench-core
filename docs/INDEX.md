@@ -302,10 +302,16 @@ Concrete levers so the service stays invisible:
   *Document extractors are DONE* — `extractText` dispatches by type: UTF-8 text/code
   directly, `.docx` via the stdlib zip/XML, and `.pdf` via the external `pdftotext`
   (poppler-utils — optional; PDFs are simply not content-indexed when it's absent),
-  each with a source-size cap + a 20s subprocess timeout. Remaining Phase 2: more
-  types (xlsx/pptx/odt/epub), a JSON metadata column (EXIF/ID3), and LRU eviction
-  (today the budget is stop-when-full — freed budget doesn't backfill skipped files
-  until they change).
+  each with a source-size cap + a 20s subprocess timeout. *Media metadata is DONE* —
+  media files (audio/image/video) have no content text, so instead their embedded
+  metadata (audio tags via the in-process `dhowden/tag`; image/video EXIF via the
+  optional external `exiftool`) is pulled into a structured `files.meta` JSON column
+  **and** a flattened searchable string folded into the content index, so a content
+  search for "canon" finds Canon photos and "beatles" finds their tracks; search
+  results carry the `meta` object and the Search panel shows a compact summary line.
+  **Phase 2 is functionally complete.** Optional refinements left: more document types
+  (xlsx/pptx/odt/epub), and LRU eviction (today the budget is stop-when-full — freed
+  budget doesn't backfill skipped files until they change).
 - **Phase 3 — native accelerators.** Windows USN/MFT and macOS Spotlight/FSEvents
   behind the existing `Source` interface. Faster first-index and cross-restart
   catch-up; no API change.

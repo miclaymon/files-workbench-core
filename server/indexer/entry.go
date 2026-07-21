@@ -8,7 +8,10 @@
 // the contract, so keep them free of platform detail.
 package indexer
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Entry is one catalogued filesystem object. The portable walker populates the
 // fields it can read from a stdlib DirEntry; native backends (USN/MFT, Spotlight)
@@ -62,10 +65,12 @@ type Query struct {
 	Offset    int       `json:"offset"` // opaque pagination cursor (offset-based for the MVP)
 }
 
-// Result is one search hit — an Entry plus its relevance score when a text query ran.
+// Result is one search hit — an Entry plus its relevance score when a text query ran
+// and, for media, its curated metadata (EXIF/ID3/…) as a nested JSON object.
 type Result struct {
 	Entry
-	Score float64 `json:"score,omitempty"`
+	Score float64         `json:"score,omitempty"`
+	Meta  json.RawMessage `json:"meta,omitempty"`
 }
 
 // ResultPage is a page of hits plus enough state to fetch the next one.

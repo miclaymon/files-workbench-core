@@ -31,8 +31,10 @@ the server from this checkout.
   (portable walk + fsnotify today; native USN/Spotlight backends later). **It is the
   only part of core that uses SQLite (`modernc.org/sqlite`) or fsnotify** — the data
   server binary pulls in neither. Full-text content indexing (Phase 2) extracts
-  `.docx` via the stdlib and `.pdf` via **`pdftotext`** (poppler-utils — an *optional*
-  external tool, like ffmpeg; PDFs just aren't content-indexed without it).
+  `.docx` via the stdlib and `.pdf` via **`pdftotext`** (poppler-utils); media files
+  are indexed by embedded metadata — audio via the in-process `dhowden/tag`, image/
+  video via **`exiftool`**. `pdftotext`/`exiftool` are *optional* external tools (like
+  ffmpeg); without them those file types simply aren't content-indexed.
 
 - **`src/`** — the JS client library (raw ESM, compiled by the consuming app's
   bundler; exported flat from `src/index.js` — export names are load-bearing):

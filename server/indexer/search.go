@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func (s *Store) Search(q Query) (ResultPage, error) {
 
 	order := orderClause(q, relevanceExpr)
 	rowsSQL := fmt.Sprintf(
-		"SELECT f.path, f.name, f.ext, f.size, f.mtime, f.is_dir, f.volume_id %s %s %s %s LIMIT ? OFFSET ?",
+		"SELECT f.path, f.name, f.ext, f.size, f.mtime, f.is_dir, f.volume_id, f.meta %s %s %s %s LIMIT ? OFFSET ?",
 		selectScore(relevanceExpr), from, where, order)
 	rows, err := s.db.Query(rowsSQL, append(append([]any{}, args...), q.Limit, q.Offset)...)
 	if err != nil {
@@ -117,13 +118,17 @@ func (s *Store) Search(q Query) (ResultPage, error) {
 			r     Result
 			mtime int64
 			isDir int
+			meta  sql.NullString
 			score sql.NullFloat64
 		)
-		if err := rows.Scan(&r.Path, &r.Name, &r.Ext, &r.Size, &mtime, &isDir, &r.VolumeID, &score); err != nil {
+		if err := rows.Scan(&r.Path, &r.Name, &r.Ext, &r.Size, &mtime, &isDir, &r.VolumeID, &meta, &score); err != nil {
 			return ResultPage{}, err
 		}
 		r.Modified = time.Unix(0, mtime) // stored as unix nanoseconds
 		r.IsDir = isDir == 1
+		if meta.Valid && meta.String != "" {
+			r.Meta = json.RawMessage(meta.String)
+		}
 		if score.Valid {
 			// bm25 is lower-is-better; report a positive "higher is better" score.
 			r.Score = -score.Float64

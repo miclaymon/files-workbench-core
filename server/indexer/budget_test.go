@@ -103,7 +103,7 @@ func TestBodyBytesMigration(t *testing.T) {
 	s.Upsert(Entry{Path: "/x/f.txt", Name: "f.txt", Ext: "txt", Size: 5})
 	var id int64
 	s.db.QueryRow(`SELECT id FROM files WHERE path = '/x/f.txt'`).Scan(&id)
-	if err := s.IndexContent(id, "hello world", 1, 5); err != nil {
+	if err := s.IndexContent(id, "hello world", "", 1, 5); err != nil {
 		t.Fatalf("IndexContent after migration: %v", err)
 	}
 	if b := s.contentBytes(); b != int64(len("hello world")) {

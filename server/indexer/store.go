@@ -69,7 +69,8 @@ func (s *Store) migrate() error {
 			size      INTEGER NOT NULL DEFAULT 0,
 			mtime     INTEGER NOT NULL DEFAULT 0,    -- unix nanoseconds (see unix() — sub-second for change detection)
 			ctime     INTEGER NOT NULL DEFAULT 0,    -- best-effort until a native backend supplies birth time
-			is_dir    INTEGER NOT NULL DEFAULT 0
+			is_dir    INTEGER NOT NULL DEFAULT 0,
+			meta      TEXT                           -- curated media metadata JSON (EXIF/ID3/…), NULL for non-media
 		)`,
 		`CREATE INDEX IF NOT EXISTS files_volume ON files(volume_id)`,
 		`CREATE INDEX IF NOT EXISTS files_ext    ON files(ext)`,
@@ -130,6 +131,9 @@ func (s *Store) migrate() error {
 	// Additive column migrations for tables that may predate a field (CREATE ... IF
 	// NOT EXISTS won't add columns to an existing table).
 	if err := s.addColumn("content_meta", "body_bytes", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.addColumn("files", "meta", "TEXT"); err != nil {
 		return err
 	}
 	return nil

@@ -73,9 +73,10 @@ func (s *Service) runContentScanner(ctx context.Context, opt scannerOptions) {
 // indexOneContent examines one file and returns the bytes it ADDED to the content
 // index (0 if skipped or a re-index of an already-counted file).
 func (s *Service) indexOneContent(c contentCandidate, maxBytes, budget, currentTotal int64) int64 {
-	text, ok := extractText(c.Path, c.Size, maxBytes)
+	text, metaJSON, ok := extractSearchable(c.Path, c.Size, maxBytes)
 	if !ok {
-		// Binary / too big / unreadable — record so we don't re-examine until it changes.
+		// Binary / too big / unreadable / no metadata — record so we don't re-examine
+		// until it changes.
 		if err := s.store.MarkContentSkipped(c.ID, c.MTime, c.Size); err != nil {
 			s.log("content mark-skipped " + c.Path + ": " + err.Error())
 		}
@@ -91,7 +92,7 @@ func (s *Service) indexOneContent(c contentCandidate, maxBytes, budget, currentT
 		}
 		return 0
 	}
-	if err := s.store.IndexContent(c.ID, text, c.MTime, c.Size); err != nil {
+	if err := s.store.IndexContent(c.ID, text, metaJSON, c.MTime, c.Size); err != nil {
 		s.log("content index " + c.Path + ": " + err.Error())
 		return 0
 	}
@@ -99,6 +100,21 @@ func (s *Service) indexOneContent(c contentCandidate, maxBytes, budget, currentT
 		return 0 // replaced existing content — net change is ~0 for the running estimate
 	}
 	return int64(len(text))
+}
+
+// extractSearchable produces the searchable text (and, for media, the structured
+// metadata JSON) for a file. Media files are indexed by their embedded metadata;
+// everything else by its extracted content text.
+func extractSearchable(path string, size, maxBytes int64) (text, metaJSON string, ok bool) {
+	if cat := mediaCategory(fileExt(path)); cat != "" {
+		meta, ok := extractMediaMetadata(path, cat, size)
+		if !ok || len(meta) == 0 {
+			return "", "", false
+		}
+		return metaSearchText(meta), jsonStr(meta), true
+	}
+	t, ok := extractText(path, size, maxBytes)
+	return t, "", ok
 }
 
 // sleep waits d or returns false if ctx is cancelled first.
