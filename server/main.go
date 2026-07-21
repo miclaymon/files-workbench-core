@@ -5,9 +5,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 )
 
 const version = "v1"
@@ -82,9 +84,22 @@ func main() {
 		controlPort = "8002"
 	}
 
+	// Search index: spawn + supervise the fw-indexer child and proxy its endpoints.
+	// Best-effort — if the binary isn't present, search returns 503 and the rest of
+	// the server is unaffected. Killed on a graceful shutdown signal so it isn't orphaned.
+	idx := startIndexManager()
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		<-ch
+		idx.stop()
+		os.Exit(0)
+	}()
+
 	dataMux := http.NewServeMux()
 	controlMux := http.NewServeMux()
 	registerDataRoutes(dataMux)
+	registerIndexRoutes(dataMux, idx)
 	registerControlRoutes(controlMux)
 
 	var wg sync.WaitGroup

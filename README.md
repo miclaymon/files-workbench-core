@@ -15,12 +15,18 @@ so the protocol never drifts.
   customization (`.directory`/`desktop.ini`), performance ingestion, and the
   plugin subsystem (artifact serving + install + the sandboxed extism/wazero
   WASM host for plugin backends).
+- **`server/indexer/` + `server/cmd/fw-indexer/`** — the filesystem **search
+  index**, a separate long-lived service the data server spawns, supervises, and
+  proxies (`/_api/v1/search`, `/index/status`, `/index/subscribe`). SQLite FTS5
+  behind an OS-abstracting `Source` interface (portable walk + fsnotify today,
+  native USN/Spotlight backends later). See [`docs/INDEX.md`](docs/INDEX.md).
 - **`src/`** — the JS client library, imported as `'@files-workbench/core'`:
   `api-config` (`API_BASE`/`CONTROL_BASE` from `VITE_API_BASE`/`VITE_CONTROL_BASE`),
   `fs-api` (reads + non-queued ops), `explorer-api` + `explorer-roots`,
   `sw-queue` (the service-worker operations bridge; the SW script itself lives in
   the host app's `public/`), `plugin-rpc` (WASM-backend RPC), `plugins-api`
-  (manifest/artifact/install/registry), `perf-log`.
+  (manifest/artifact/install/registry), `perf-log`, `search-api` (search-index
+  query + live change feed).
 
 ## Running the server
 

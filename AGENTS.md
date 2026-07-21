@@ -23,11 +23,21 @@ the server from this checkout.
   register write routes on the data mux or vice versa (`main.go` →
   `registerDataRoutes` / `registerControlRoutes`).
 
+- **`server/indexer/`** + **`server/cmd/fw-indexer/`** — the filesystem **search
+  index**, a *separate* long-lived service (see `docs/INDEX.md`). The data server
+  spawns and supervises the `fw-indexer` child and proxies its endpoints
+  (`/_api/v1/search`, `/index/status`, `/index/subscribe`) — see `indexer_proxy.go`.
+  The indexer owns a SQLite FTS5 index and indexes behind the `Source` interface
+  (portable walk + fsnotify today; native USN/Spotlight backends later). **It is the
+  only part of core that uses SQLite (`modernc.org/sqlite`) or fsnotify** — the data
+  server binary pulls in neither.
+
 - **`src/`** — the JS client library (raw ESM, compiled by the consuming app's
   bundler; exported flat from `src/index.js` — export names are load-bearing):
   `api-config.js` (`API_BASE`/`CONTROL_BASE` from `VITE_API_BASE`/`VITE_CONTROL_BASE`
   at build time), `fs-api.js`, `explorer-api.js`, `explorer-roots.js`,
-  `sw-queue.js`, `plugin-rpc.js`, `plugins-api.js`, `perf-log.js`.
+  `sw-queue.js`, `plugin-rpc.js`, `plugins-api.js`, `perf-log.js`, `search-api.js`
+  (the search-index client: `searchIndex`/`indexStatus`/`subscribeIndex`).
 
 ## Key server files
 
@@ -45,6 +55,7 @@ the server from this checkout.
 | `plugins_serve.go` / `plugins_install.go` | runtime plugin manifest/artifact serving; third-party install/uninstall/enable with server-side hash recompute |
 | `customization.go` | lossless `.directory`/`desktop.ini` read/write + pinned items |
 | `blacklist.go` | path-exclusion rules from `FW_BLACKLIST` |
+| `indexer_proxy.go` | spawns/supervises the `fw-indexer` child and reverse-proxies its search endpoints; 503s when the index is unavailable |
 
 ## Path roots (`FW_*` env contract)
 
@@ -58,6 +69,15 @@ package-relative paths for standalone runs (`main.go`):
 | `FW_PLUGINS_DIR` | built first-party plugin artifacts | `<pkg>/.fw/plugins` |
 | `FW_LOGS_DIR` | logs | `<pkg>/server/logs` |
 | `FW_BLACKLIST` | protection rules | `<pkg>/server/blacklist.yaml` |
+
+Search-index vars (consumed by `indexer_proxy.go` + the `fw-indexer` child):
+
+| Var | Holds |
+|---|---|
+| `FW_INDEX_ROOTS` | comma-separated roots to index. **Unset ⇒ the index is disabled** (explicit-roots policy — never indexes a whole home unasked). |
+| `FW_INDEX_BIN` | override for the `fw-indexer` binary path (else: next to the server binary, then `<pkg>/server/fw-indexer`). |
+| `FW_INDEX_ADDR` | where the indexer listens (default `127.0.0.1:8010`); core proxies to it. |
+| `FW_DATA_DIR` | also holds the index DB (`<dataDir>/index/index.db`). |
 
 **A host app always sets these.** Files Workbench points them at its own tree in
 `dev:server` (repo root `config/` + `.fw/plugins`) and from Electron's main

@@ -68,3 +68,8 @@ export {
   perfMark,
   perfFlush,
 } from './perf-log.js'
+export {
+  searchIndex,
+  indexStatus,
+  subscribeIndex,
+} from './search-api.js'
