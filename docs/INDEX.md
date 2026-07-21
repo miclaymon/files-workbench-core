@@ -299,9 +299,13 @@ Concrete levers so the service stays invisible:
   indexed-text bytes; once `FW_INDEX_CONTENT_BUDGET` (default 512 MiB) is reached the
   scanner stops indexing NEW files (a changed already-indexed file still re-indexes),
   bounding the content index's footprint; `/status` reports `contentBytes`/`contentBudget`.
-  Remaining Phase 2: richer per-type extractors (PDF/docx — today only UTF-8 text/code),
-  a JSON metadata column (EXIF/ID3), and LRU eviction (today it's stop-when-full, no
-  eviction — freed budget doesn't backfill skipped files until they change).
+  *Document extractors are DONE* — `extractText` dispatches by type: UTF-8 text/code
+  directly, `.docx` via the stdlib zip/XML, and `.pdf` via the external `pdftotext`
+  (poppler-utils — optional; PDFs are simply not content-indexed when it's absent),
+  each with a source-size cap + a 20s subprocess timeout. Remaining Phase 2: more
+  types (xlsx/pptx/odt/epub), a JSON metadata column (EXIF/ID3), and LRU eviction
+  (today the budget is stop-when-full — freed budget doesn't backfill skipped files
+  until they change).
 - **Phase 3 — native accelerators.** Windows USN/MFT and macOS Spotlight/FSEvents
   behind the existing `Source` interface. Faster first-index and cross-restart
   catch-up; no API change.

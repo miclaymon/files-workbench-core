@@ -30,7 +30,9 @@ the server from this checkout.
   The indexer owns a SQLite FTS5 index and indexes behind the `Source` interface
   (portable walk + fsnotify today; native USN/Spotlight backends later). **It is the
   only part of core that uses SQLite (`modernc.org/sqlite`) or fsnotify** — the data
-  server binary pulls in neither.
+  server binary pulls in neither. Full-text content indexing (Phase 2) extracts
+  `.docx` via the stdlib and `.pdf` via **`pdftotext`** (poppler-utils — an *optional*
+  external tool, like ffmpeg; PDFs just aren't content-indexed without it).
 
 - **`src/`** — the JS client library (raw ESM, compiled by the consuming app's
   bundler; exported flat from `src/index.js` — export names are load-bearing):
