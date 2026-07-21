@@ -41,7 +41,7 @@ func main() {
 	}
 	defer store.Close()
 
-	src := indexer.NewPortableSource(indexer.DefaultExclude(splitCSV(*skip)),
+	src := indexer.SelectSource(indexer.DefaultExclude(splitCSV(*skip)),
 		func(msg string) { log.Printf("[fw-indexer] %s", msg) })
 	svc := indexer.NewService(store, src)
 	svc.SetLogger(func(msg string) { log.Printf("[fw-indexer] %s", msg) })

@@ -315,6 +315,15 @@ Concrete levers so the service stays invisible:
 - **Phase 3 — native accelerators.** Windows USN/MFT and macOS Spotlight/FSEvents
   behind the existing `Source` interface. Faster first-index and cross-restart
   catch-up; no API change.
+  *Selection architecture in place:* `SelectSource(exclude, log)` is build-tagged per
+  GOOS (`source_select{,_windows,_darwin}.go`) and the `fw-indexer` binary uses it;
+  the `fw-indexer` package + all deps (pure-Go SQLite, fsnotify) **cross-compile for
+  windows and darwin (amd64 + arm64)**, so the native backends slot in behind the
+  selector on their target OS. Today every OS returns the portable backend; the
+  windows/darwin selectors document the native plan (USN/MFT via
+  `x/sys/windows`+DeviceIoControl; Spotlight/FSEvents via cgo or mdfind).
+  *These backends need their target OS to develop and test* — they can't be
+  runtime-verified from Linux.
 - **Phase 4 (optional) — OS-level daemon.** Promote the app-child service to a real
   user daemon for cross-session warmth, if the feature earns it.
 
