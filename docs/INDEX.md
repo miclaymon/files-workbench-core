@@ -135,7 +135,7 @@ Backends (all behind `Source`, added incrementally):
 |---|---|---|
 | **Linux** | walk + `fanotify`/`inotify` watcher + our cursor | — (fragmented; portable is the plan) |
 | **Windows** | walk + `ReadDirectoryChangesW` | **MFT enumeration + USN Change Journal** (instant name index, cross-restart catch-up via USN sequence). Pure Go via `golang.org/x/sys/windows` + `DeviceIoControl` — no C#/Python/WASM. Needs an elevated volume handle → the one place a small privileged helper may be warranted. |
-| **macOS** | walk + `FSEvents` | **Spotlight** (`NSMetadataQuery`/`mdquery`) — content+metadata already maintained by the OS; FSEvents event-IDs give cross-restart catch-up. |
+| **macOS** | walk + `fsnotify` (kqueue, no cgo) | **FSEvents** (whole-tree live updates, cross-restart catch-up via a persisted event ID — cgo to CoreServices, since FSEvents has no raw-syscall path the way `kqueue` does). Spotlight (`NSMetadataQuery`/`mdquery`) was evaluated as an MFT-enumeration-equivalent for the *initial* index and deliberately not attempted — see `docs/MACOS_BACKEND_PLAN.md`. |
 
 v1 ships **only the portable `Source`** on all three OSes (walk + native watcher +
 our own persisted cursor). That's a complete, shippable index everywhere; the native
@@ -330,8 +330,24 @@ Concrete levers so the service stays invisible:
   walk (MFT enumeration is a further optimization). It falls back to the portable
   backend on any journal setup error (no elevation / non-NTFS), and `FW_INDEX_NATIVE=0`
   forces portable outright. It cross-compiles for windows amd64+arm64 but has **not
-  been run on Windows** — validate there before trusting it. macOS Spotlight/FSEvents
-  still deferred (its cgo backend can't cross-compile from Linux).
+  been run on Windows** — validate there before trusting it.
+  *macOS FSEvents backend written (⚠️ NEVER COMPILED, not just untested):*
+  `source_darwin.go` + `fsevents_darwin.go` mirror the Windows shape — an FSEvents
+  stream (via cgo, since FSEvents is a CoreServices framework API with no raw
+  syscall like `kqueue` has) for live updates, with cross-restart catch-up via a
+  persisted event ID + per-volume FSEvents UUID validation
+  (`<FW_DATA_DIR>/index/fsevents-cursor.json`), falling back to the portable
+  watcher on any setup failure. Unlike Windows, this **cannot even cross-compile**
+  from Linux — cgo to CoreServices needs `CGO_ENABLED=1` and the real macOS SDK,
+  neither available here — so it has never been through a Go compiler at all.
+  **Not wired into `SelectSource`** (still returns portable) and not intended to be
+  until it's been built and debugged on a Mac. A standalone `cmd/fsevents-smoke`
+  tool exercises just the low-level cgo layer for that first debugging pass. Full
+  status, the reasoning behind every design choice, and a step-by-step
+  compile→validate→wire-up plan live in **`docs/MACOS_BACKEND_PLAN.md`** — read
+  that first, don't just flip the selector. Spotlight was evaluated for the
+  *initial* index (MFT-enumeration equivalent) and deliberately not attempted; see
+  that doc's "Initial index" section for why.
 - **Phase 4 (optional) — OS-level daemon.** Promote the app-child service to a real
   user daemon for cross-session warmth, if the feature earns it.
 

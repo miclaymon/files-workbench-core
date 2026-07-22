@@ -160,24 +160,6 @@ func (w *windowsSource) recordToChange(h windows.Handle, letter string, rec usnR
 	return Change{}, false
 }
 
-// statEntry builds an Entry from a live path (Lstat), or ok=false if it vanished.
-func statEntry(path, volume string) (Entry, bool) {
-	info, err := os.Lstat(filepath.FromSlash(path))
-	if err != nil {
-		return Entry{}, false
-	}
-	return entryFromInfo(path, volume, info), true
-}
-
-func underAny(path string, roots []string) bool {
-	for _, r := range roots {
-		if path == r || strings.HasPrefix(path, r+"/") {
-			return true
-		}
-	}
-	return false
-}
-
 // volumeLetter returns the drive letter of an absolute Windows path ("C:\x" → "C").
 func volumeLetter(abs string) string {
 	v := filepath.VolumeName(abs) // "C:"
