@@ -28,6 +28,7 @@ type indexManager struct {
 	mu       sync.Mutex
 	cmd      *exec.Cmd
 	shutdown bool
+	adopted  bool // an OS-managed daemon was already running — we proxy but don't own it
 }
 
 // startIndexManager configures the proxy and, if the fw-indexer binary can be found,
@@ -46,6 +47,18 @@ func startIndexManager() *indexManager {
 
 	m := &indexManager{addr: addr, proxy: proxy}
 
+	// Connect-or-spawn (Phase 4 — see ../docs/DAEMON_PLAN.md). If a fw-indexer daemon
+	// is already answering on addr — an OS-managed service (systemd/launchd/SCM), or a
+	// leftover from a previous run — adopt it: proxy to it, but never supervise or kill
+	// it (its lifecycle belongs to the OS). This is checked before the roots gate on
+	// purpose: an OS daemon carries its own FW_INDEX_ROOTS in its service definition,
+	// so core can front a running index even when core itself wasn't given roots.
+	if probeIndexerHealth(addr) {
+		log.Printf("[index] adopting already-running indexer at %s (OS-managed — not supervising)", addr)
+		m.adopted = true
+		return m
+	}
+
 	// Explicit-roots policy: index only what the host configures (FW_INDEX_ROOTS).
 	// With no roots we never spawn the indexer — search reports unavailable rather
 	// than quietly indexing a user's entire home directory.
@@ -61,6 +74,18 @@ func startIndexManager() *indexManager {
 	}
 	go m.supervise(bin)
 	return m
+}
+
+// probeIndexerHealth reports whether a fw-indexer is already serving on addr, via a
+// short-timeout GET /health. Used by connect-or-spawn to decide adopt vs. spawn.
+func probeIndexerHealth(addr string) bool {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get("http://" + addr + "/health")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // supervise runs the indexer and restarts it if it exits unexpectedly (bounded
@@ -106,10 +131,15 @@ func (m *indexManager) supervise(bin string) {
 }
 
 // stop terminates the indexer child (called on core shutdown so it isn't orphaned).
+// An adopted OS-managed daemon is left running — core never spawned it, so killing
+// it on app quit would defeat the whole point of the daemon (cross-session warmth).
 func (m *indexManager) stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.shutdown = true
+	if m.adopted {
+		return
+	}
 	if m.cmd != nil && m.cmd.Process != nil {
 		m.cmd.Process.Kill()
 	}

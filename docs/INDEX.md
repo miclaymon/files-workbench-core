@@ -11,9 +11,11 @@ enables it via `FW_INDEX_ROOTS` (explicit-roots policy), and ships a real **Sear
 panel** (live results, filters, click-to-reveal). **Phase 2 content full-text search
 is done** too — a low-priority background scanner fills a contentless FTS5 content
 index, with content search in the query and a Name/Contents toggle in the panel
-(remaining Phase 2: richer extractors, metadata, size budget). Next: Phase 3 (native
-USN/Spotlight backends) and roots-as-preference. Decisions marked **[locked]** are
-settled; **[open]** ones need a call before the phase that depends on them.
+and metadata search. **Phase 3** (native backends) and **Phase 4** (OS-managed
+daemon) are scaffolded — see their entries under Phasing for what's runtime-tested vs.
+written-but-unverified, and the companion docs `MACOS_BACKEND_PLAN.md` /
+`DAEMON_PLAN.md`. Decisions marked **[locked]** are settled; **[open]** ones need a
+call before the phase that depends on them.
 
 The index is a searchable, incrementally-maintained catalog of the filesystem,
 living in `@files-workbench/core`. Its first consumer is the **Search** activity
@@ -348,8 +350,25 @@ Concrete levers so the service stays invisible:
   that first, don't just flip the selector. Spotlight was evaluated for the
   *initial* index (MFT-enumeration equivalent) and deliberately not attempted; see
   that doc's "Initial index" section for why.
-- **Phase 4 (optional) — OS-level daemon.** Promote the app-child service to a real
-  user daemon for cross-session warmth, if the feature earns it.
+- **Phase 4 (optional) — OS-level daemon. Scaffolding built.** Promote the app-child
+  service to a real user daemon for cross-session warmth + cross-instance sharing.
+  *Built:* a `service` package with install/uninstall/status managers for all three
+  OSes — **systemd `--user`** (Linux), **launchd LaunchAgent** (macOS), **Windows
+  SCM service** (via pure-Go `x/sys/windows/svc`+`mgr`+`registry`) — driven by
+  `fw-indexer install|uninstall|service-status` subcommands that bake the config into
+  the OS service definition. Core gained **connect-or-spawn** (`indexer_proxy.go`):
+  it probes `FW_INDEX_ADDR/health` at startup and *adopts* an already-running daemon
+  (proxy only, never supervise/kill) instead of spawning a child; the app-child model
+  is the fallback when no daemon answers. **The Linux systemd path is fully
+  runtime-tested** (install → serves name+content search → adopted by core, no
+  double-spawn → survives core exit → clean uninstall). The **macOS launchd and
+  Windows SCM paths are compile-checked only** — no cgo is involved so they
+  cross-compile, but launchctl/SCM runtime behavior (and Windows elevation: the
+  service runs as LocalSystem for the USN backend's raw volume handle) is unverified.
+  Installing is opt-in — a stock checkout keeps using the app-child model. Full
+  design, per-OS validation checklists, and the cross-cutting open items
+  (update-coordination version handshake, stale-daemon re-probe, socket transport,
+  the app-side Settings toggle) live in **`docs/DAEMON_PLAN.md`**.
 
 ---
 

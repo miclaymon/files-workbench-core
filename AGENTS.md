@@ -23,18 +23,25 @@ the server from this checkout.
   register write routes on the data mux or vice versa (`main.go` →
   `registerDataRoutes` / `registerControlRoutes`).
 
-- **`server/indexer/`** + **`server/cmd/fw-indexer/`** — the filesystem **search
-  index**, a *separate* long-lived service (see `docs/INDEX.md`). The data server
-  spawns and supervises the `fw-indexer` child and proxies its endpoints
-  (`/_api/v1/search`, `/index/status`, `/index/subscribe`) — see `indexer_proxy.go`.
-  The indexer owns a SQLite FTS5 index and indexes behind the `Source` interface
-  (portable walk + fsnotify today; native USN/Spotlight backends later). **It is the
-  only part of core that uses SQLite (`modernc.org/sqlite`) or fsnotify** — the data
-  server binary pulls in neither. Full-text content indexing (Phase 2) extracts
-  `.docx` via the stdlib and `.pdf` via **`pdftotext`** (poppler-utils); media files
-  are indexed by embedded metadata — audio via the in-process `dhowden/tag`, image/
-  video via **`exiftool`**. `pdftotext`/`exiftool` are *optional* external tools (like
-  ffmpeg); without them those file types simply aren't content-indexed.
+- **`server/indexer/`** + **`server/cmd/fw-indexer/`** + **`server/service/`** — the
+  filesystem **search index**, a *separate* long-lived service (see `docs/INDEX.md`).
+  By default the data server spawns and supervises the `fw-indexer` child and proxies
+  its endpoints (`/_api/v1/search`, `/index/status`, `/index/subscribe`) — see
+  `indexer_proxy.go`. **Connect-or-spawn:** core first probes `FW_INDEX_ADDR/health`
+  and *adopts* an already-running daemon (proxy only, no supervise/kill) before
+  falling back to spawning a child. The `service` package + the `fw-indexer
+  install|uninstall|service-status` subcommands register it as an **OS-managed
+  daemon** (systemd `--user` / launchd / Windows SCM — Phase 4, `docs/DAEMON_PLAN.md`;
+  Linux tested, macOS/Windows compile-checked only). The indexer owns a SQLite FTS5
+  index behind the `Source` interface (portable walk + fsnotify today; native
+  USN/FSEvents backends scaffolded — `docs/MACOS_BACKEND_PLAN.md`). **The indexer +
+  service are the only part of core that uses SQLite (`modernc.org/sqlite`), fsnotify,
+  or the OS service managers** — the data server binary pulls in none of them.
+  Full-text content indexing (Phase 2) extracts `.docx` via the stdlib and `.pdf` via
+  **`pdftotext`** (poppler-utils); media files are indexed by embedded metadata —
+  audio via the in-process `dhowden/tag`, image/video via **`exiftool`**.
+  `pdftotext`/`exiftool` are *optional* external tools (like ffmpeg); without them
+  those file types simply aren't content-indexed.
 
 - **`src/`** — the JS client library (raw ESM, compiled by the consuming app's
   bundler; exported flat from `src/index.js` — export names are load-bearing):
